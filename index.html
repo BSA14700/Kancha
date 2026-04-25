@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Kancha - 3 Level Prototype</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #222; touch-action: none; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        canvas { display: block; }
+        #ui { position: absolute; top: 10px; left: 10px; color: white; background: rgba(0,0,0,0.7); padding: 15px; border-radius: 8px; user-select: none; pointer-events: none; border: 1px solid #555; }
+        #ui b { color: #00ffcc; }
+        #center-text { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; font-size: 3rem; font-weight: bold; text-shadow: 2px 2px 10px black; user-select: none; pointer-events: none; display: none; text-align: center; }
+        .sub-text { font-size: 1.5rem; color: #ffcc00; display: block; margin-top: 10px; }
+    </style>
+</head>
+<body>
+    <div id="ui">
+        <b>Level:</b> <span id="level-display">1</span> / 3<br>
+        <b>Targets Remaining:</b> <span id="remaining">0</span><br><br>
+        <i>Controls:</i><br>
+        - Drag background to rotate.<br>
+        - Drag FROM Striker (blue) to shoot.
+    </div>
+
+    <div id="center-text">
+        <span id="main-msg">Level Cleared!</span>
+        <span class="sub-text" id="sub-msg">Loading next level...</span>
+    </div>
+    
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/",
+                "cannon-es": "https://unpkg.com/cannon-es@0.20.0/dist/cannon-es.js"
+            }
+        }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import * as CANNON from 'cannon-es';
+
+        // --- 1. SETUP THREE.JS (Fixed Fog & Camera) ---
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x8B5A2B);
+        scene.fog = new THREE.Fog(0x8B5A2B, 30, 100);
+
+        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 500);
+        camera.position.set(0, 8, 12);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        document.body.appendChild(renderer.domElement);
+
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.maxPolarAngle = Math.PI / 2 - 0.05; 
+        controls.maxDistance = 40;
+
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+        scene.add(ambientLight);
+
+        const dirLight = new THREE.DirectionalLight(0xffffff, 2);
+        dirLight.position.set(10, 20, 10);
+        dirLight.castShadow = true;
+        dirLight.shadow.mapSize.width = 2048;
+        dirLight.shadow.mapSize.height = 2048;
+        dirLight.shadow.camera.near = 0.5;
+        dirLight.shadow.camera.far = 50;
+        dirLight.shadow.camera.left = -25;
+        dirLight.shadow.camera.right = 25;
+        dirLight.shadow.camera.top = 25;
+        dirLight.shadow.camera.bottom = -25;
+        scene.add(dirLight);
+
+        // --- 2. SETUP CANNON.ES (PHYSICS) ---
+        const world = new CANNON.World({ gravity: new CANNON.Vec3(0, -9.82, 0) });
+        const physicsMaterials = {
+            ground: new CANNON.Material('ground'),
+            glass: new CANNON.Material('glass')
+        };
+        world.addContactMaterial(new CANNON.ContactMaterial(physicsMaterials.glass, physicsMaterials.glass, { friction: 0.1, restitution: 0.8 }));
+        world.addContactMaterial(new CANNON.ContactMaterial(physicsMaterials.glass, physicsMaterials.ground, { friction: 0.6, restitution: 0.2 }));
+
+        // --- 3. CREATE GROUND & RING MESH ---
+        const groundGeo = new THREE.PlaneGeometry(100, 100);
+        const groundMat = new THREE.MeshStandardMaterial({ color: 0x5C4033, roughness: 1 });
+        const groundMesh = new THREE.Mesh(groundGeo, groundMat);
+        groundMesh.rotation.x = -Math.PI / 2;
+        groundMesh.receiveShadow = true;
+        scene.add(groundMesh);
+
+        const groundBody = new CANNON.Body({ type: CANNON.Body.STATIC, shape: new CANNON.Plane(), material: physicsMaterials.ground });
+        groundBody.quaternion.setFromEuler(-Math.PI / 2, 0, 0);
+        world.addBody(groundBody);
+
+        let ringMesh = new THREE.Mesh(new THREE.RingGeometry(1, 1.1, 64), new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide }));
+        ringMesh.rotation.x = -Math.PI / 2;
+        ringMesh.position.y = 0.01;
+        scene.add(ringMesh);
+
+        // --- 4. LEVEL & MARBLE MANAGEMENT ---
+        let currentLevel = 1;
+        let isTransitioning = false;
+        let currentRingRadius = 3;
+        const STRIKER_START_POS = new CANNON.Vec3(0, 0.3, 7);
+        let targetMarbles = [];
+        let knockedOutMarbles = [];
+        let striker;
+
+        const levelConfigs = [
+            { // Level 1: Spread out, large ring
+                radius: 3,
+                targets: [ {x:0, z:0, c:0x00ff00}, {x:0.5, z:-0.5, c:0xffffff}, {x:-0.5, z:-0.5, c:0xff0000}, {x:0.25, z:0.5, c:0xffff00}, {x:-0.25, z:0.5, c:0xff00ff} ]
+            },
+            { // Level 2: Tight cross, medium ring
+                radius: 2,
+                targets: [ {x:0, z:0, c:0x00ff00}, {x:0.4, z:0, c:0xffffff}, {x:-0.4, z:0, c:0xff0000}, {x:0, z:0.4, c:0xffff00}, {x:0, z:-0.4, c:0xff00ff} ]
+            },
+            { // Level 3: Dense line, small ring (High penalty risk)
+                radius: 1.5,
+                targets: [ {x:0, z:0, c:0xff0000}, {x:0.4, z:0, c:0xffffff}, {x:-0.4, z:0, c:0xffffff}, {x:0.8, z:0, c:0xffff00}, {x:-0.8, z:0, c:0xffff00} ]
+            }
+        ];
+
+        function createMarble(x, z, color, isStriker = false) {
+            const radius = isStriker ? 0.3 : 0.2;
+            const mass = isStriker ? 5 : 2;
+            const mat = new THREE.MeshPhysicalMaterial({ transmission: 1, opacity: 1, roughness: 0.1, ior: 1.5, thickness: 0.5, color: color });
+            const mesh = new THREE.Mesh(new THREE.SphereGeometry(radius, 32, 32), mat);
+            mesh.castShadow = true;
+            scene.add(mesh);
+
+            const body = new CANNON.Body({
+                mass: mass,
+                shape: new CANNON.Sphere(radius),
+                position: new CANNON.Vec3(x, radius, z),
+                material: physicsMaterials.glass,
+                linearDamping: 0.4, angularDamping: 0.4
+            });
+            world.addBody(body);
+            return { mesh, body, isStriker, isOut: false };
+        }
+
+        function loadLevel(levelIndex) {
+            isTransitioning = true;
+            const config = levelConfigs[levelIndex - 1];
+            currentRingRadius = config.radius;
+
+            // Clear old targets
+            targetMarbles.forEach(m => { scene.remove(m.mesh); world.removeBody(m.body); });
+            targetMarbles = [];
+            knockedOutMarbles = [];
+
+            // Rebuild Ring
+            ringMesh.geometry.dispose();
+            ringMesh.geometry = new THREE.RingGeometry(currentRingRadius - 0.05, currentRingRadius + 0.05, 64);
+
+            // Spawn new targets
+            config.targets.forEach(t => targetMarbles.push(createMarble(t.x, t.z, t.c)));
+
+            // Reset Striker
+            if (!striker) {
+                striker = createMarble(STRIKER_START_POS.x, STRIKER_START_POS.z, 0x0088ff, true);
+            } else {
+                striker.body.position.copy(STRIKER_START_POS);
+                striker.body.velocity.set(0,0,0);
+                striker.body.angularVelocity.set(0,0,0);
+            }
+
+            // Update UI
+            document.getElementById('level-display').innerText = levelIndex;
+            updateRemainingCount();
+            
+            showText(`Level ${levelIndex}`, "Clear all targets without stopping in the ring!", 2000);
+            setTimeout(() => { isTransitioning = false; }, 2000);
+        }
+
+        function updateRemainingCount() {
+            const remaining = targetMarbles.filter(m => !m.isOut).length;
+            document.getElementById('remaining').innerText = remaining;
+            return remaining;
+        }
+
+        // --- 5. UI TEXT CONTROLLER ---
+        function showText(mainMsg, subMsg = "", duration = 0) {
+            const container = document.getElementById('center-text');
+            document.getElementById('main-msg').innerText = mainMsg;
+            document.getElementById('sub-msg').innerText = subMsg;
+            container.style.display = 'block';
+            
+            if (duration > 0) {
+                setTimeout(() => { container.style.display = 'none'; }, duration);
+            }
+        }
+
+        // --- 6. SNAP MECHANIC & CAMERA ---
+        let isDragging = false;
+        let startPos = new THREE.Vector3();
+        let currentPos = new THREE.Vector3();
+        
+        const lineGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
+        const lineMesh = new THREE.Line(lineGeo, new THREE.LineBasicMaterial({ color: 0xffffff, linewidth: 3 }));
+        lineMesh.visible = false;
+        scene.add(lineMesh);
+
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+
+        function getIntersection(event) {
+            const clientX = event.touches ? event.touches[0].clientX : event.clientX;
+            const clientY = event.touches ? event.touches[0].clientY : event.clientY;
+            mouse.x = (clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(clientY / window.innerHeight) * 2 + 1;
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObject(groundMesh);
+            return intersects.length > 0 ? intersects[0].point : null;
+        }
+
+        function onDown(event) {
+            if (isTransitioning) return;
+            const point = getIntersection(event);
+            if (!point) return;
+            
+            const distToStriker = new THREE.Vector2(point.x, point.z).distanceTo(new THREE.Vector2(striker.mesh.position.x, striker.mesh.position.z));
+            
+            if (distToStriker < 1.0 && striker.body.velocity.lengthSquared() < 0.01) {
+                isDragging = true;
+                controls.enabled = false;
+                startPos.copy(striker.mesh.position);
+                lineMesh.visible = true;
+            }
+        }
+
+        function onMove(event) {
+            if (!isDragging) return;
+            const point = getIntersection(event);
+            if (!point) return;
+            currentPos.copy(point);
+            currentPos.y = striker.mesh.position.y;
+            lineGeo.setFromPoints([striker.mesh.position, currentPos]);
+        }
+
+        function onUp() {
+            if (!isDragging) return;
+            isDragging = false;
+            lineMesh.visible = false;
+            controls.enabled = true;
+
+            const pullVector = new THREE.Vector3().subVectors(startPos, currentPos);
+            striker.body.applyImpulse(new CANNON.Vec3(pullVector.x * 20, 0, pullVector.z * 20), striker.body.position);
+        }
+
+        window.addEventListener('mousedown', onDown); window.addEventListener('mousemove', onMove); window.addEventListener('mouseup', onUp);
+        window.addEventListener('touchstart', onDown, { passive: false }); window.addEventListener('touchmove', onMove, { passive: false }); window.addEventListener('touchend', onUp);
+
+        // --- 7. GAME RULES & STATE LOOP ---
+        function checkGameState() {
+            if (isTransitioning) return;
+
+            let allStopped = true;
+            if (striker.body.velocity.lengthSquared() > 0.05) allStopped = false;
+            targetMarbles.forEach(m => { if (m.body.velocity.lengthSquared() > 0.05) allStopped = false; });
+
+            if (allStopped) {
+                // Check targets knocked out
+                targetMarbles.forEach(m => {
+                    if (!m.isOut && Math.hypot(m.body.position.x, m.body.position.z) > currentRingRadius) {
+                        m.isOut = true;
+                        knockedOutMarbles.push(m);
+                    }
+                });
+
+                const remaining = updateRemainingCount();
+
+                // Win Condition
+                if (remaining === 0) {
+                    isTransitioning = true;
+                    if (currentLevel < 3) {
+                        showText("Level Cleared!", "Next level in 3 seconds...");
+                        setTimeout(() => { currentLevel++; loadLevel(currentLevel); }, 3000);
+                    } else {
+                        showText("Victory!", "You are the Kancha Master.");
+                    }
+                    return;
+                }
+
+                // Penalty Check
+                const strikerDist = Math.hypot(striker.body.position.x, striker.body.position.z);
+                const distFromStart = Math.hypot(striker.body.position.x - STRIKER_START_POS.x, striker.body.position.z - STRIKER_START_POS.z);
+                
+                if (strikerDist < currentRingRadius && distFromStart > 0.5) {
+                    applyPenalty();
+                }
+            }
+        }
+
+        function applyPenalty() {
+            showText("Penalty!", "Striker stopped in the ring.", 1500);
+            striker.body.position.copy(STRIKER_START_POS);
+            striker.body.velocity.set(0, 0, 0);
+            striker.body.angularVelocity.set(0, 0, 0);
+
+            if (knockedOutMarbles.length > 0) {
+                const returnedMarble = knockedOutMarbles.pop();
+                returnedMarble.isOut = false;
+                returnedMarble.body.position.set(0, 0.2, 0);
+                returnedMarble.body.velocity.set(0, 0, 0);
+            }
+            updateRemainingCount();
+        }
+
+        // --- 8. INITIALIZE & RENDER LOOP ---
+        loadLevel(1);
+
+        const timeStep = 1 / 60;
+        function animate() {
+            requestAnimationFrame(animate);
+            world.step(timeStep);
+            controls.update();
+
+            striker.mesh.position.copy(striker.body.position);
+            striker.mesh.quaternion.copy(striker.body.quaternion);
+            targetMarbles.forEach(m => {
+                m.mesh.position.copy(m.body.position);
+                m.mesh.quaternion.copy(m.body.quaternion);
+            });
+
+            if (isDragging) lineGeo.setFromPoints([striker.mesh.position, currentPos]);
+
+            checkGameState();
+            renderer.render(scene, camera);
+        }
+        animate();
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+</html>
