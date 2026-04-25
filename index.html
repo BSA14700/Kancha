@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Kancha - 3 Level Prototype</title>
+    <title>Kancha - Final Prototype</title>
     <style>
         body { margin: 0; overflow: hidden; background-color: #222; touch-action: none; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
         canvas { display: block; }
@@ -18,7 +18,7 @@
         <b>Level:</b> <span id="level-display">1</span> / 3<br>
         <b>Targets Remaining:</b> <span id="remaining">0</span><br><br>
         <i>Controls:</i><br>
-        - Drag background to rotate.<br>
+        - Drag background to rotate camera.<br>
         - Drag FROM Striker (blue) to shoot.
     </div>
 
@@ -30,9 +30,9 @@
     <script type="importmap">
         {
             "imports": {
-                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
-                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/",
-                "cannon-es": "https://unpkg.com/cannon-es@0.20.0/dist/cannon-es.js"
+                "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
+                "cannon-es": "https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/+esm"
             }
         }
     </script>
@@ -42,10 +42,11 @@
         import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
         import * as CANNON from 'cannon-es';
 
-        // --- 1. SETUP THREE.JS (Fixed Fog & Camera) ---
+        // --- 1. SETUP THREE.JS (Brighter Lighting & Tone Mapping) ---
         const scene = new THREE.Scene();
-        scene.background = new THREE.Color(0x8B5A2B);
-        scene.fog = new THREE.Fog(0x8B5A2B, 30, 100);
+        const skyColor = 0xd4a373; // Lighter, dusty daylight color
+        scene.background = new THREE.Color(skyColor);
+        scene.fog = new THREE.Fog(skyColor, 20, 90);
 
         const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 500);
         camera.position.set(0, 8, 12);
@@ -54,6 +55,8 @@
         renderer.setSize(window.innerWidth, window.innerHeight);
         renderer.shadowMap.enabled = true;
         renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.toneMappingExposure = 1.4; 
         document.body.appendChild(renderer.domElement);
 
         const controls = new OrbitControls(camera, renderer.domElement);
@@ -61,10 +64,10 @@
         controls.maxPolarAngle = Math.PI / 2 - 0.05; 
         controls.maxDistance = 40;
 
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+        const ambientLight = new THREE.AmbientLight(0xffffff, 1.8);
         scene.add(ambientLight);
 
-        const dirLight = new THREE.DirectionalLight(0xffffff, 2);
+        const dirLight = new THREE.DirectionalLight(0xffffff, 2.5);
         dirLight.position.set(10, 20, 10);
         dirLight.castShadow = true;
         dirLight.shadow.mapSize.width = 2048;
@@ -88,7 +91,7 @@
 
         // --- 3. CREATE GROUND & RING MESH ---
         const groundGeo = new THREE.PlaneGeometry(100, 100);
-        const groundMat = new THREE.MeshStandardMaterial({ color: 0x5C4033, roughness: 1 });
+        const groundMat = new THREE.MeshStandardMaterial({ color: 0xcaba9c, roughness: 1 });
         const groundMesh = new THREE.Mesh(groundGeo, groundMat);
         groundMesh.rotation.x = -Math.PI / 2;
         groundMesh.receiveShadow = true;
