@@ -1,409 +1,593 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Kancha - Dynamic Camera & Modes</title>
-    <style>
-        body { margin: 0; overflow: hidden; background-color: #222; touch-action: none; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
-        canvas { display: block; }
-        
-        #ui { position: absolute; top: 10px; left: 10px; color: white; background: rgba(0,0,0,0.7); padding: 15px; border-radius: 8px; user-select: none; pointer-events: none; border: 1px solid #555; }
-        #ui b { color: #00ffcc; }
-        
-        /* New UI Buttons */
-        .btn-container { position: absolute; bottom: 30px; width: 100%; display: flex; justify-content: space-between; padding: 0 30px; box-sizing: border-box; pointer-events: none; }
-        .game-btn { padding: 15px 20px; font-size: 1.1rem; font-weight: bold; background: #0088ff; color: white; border: none; border-radius: 8px; cursor: pointer; box-shadow: 0 4px 10px rgba(0,0,0,0.5); pointer-events: auto; transition: background 0.2s; }
-        .game-btn:active { background: #0055aa; transform: translateY(2px); }
-        #btn-mode { background: #ff5500; }
-        #btn-mode:active { background: #aa3300; }
-        
-        #center-text { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; font-size: 3rem; font-weight: bold; text-shadow: 2px 2px 10px black; user-select: none; pointer-events: none; display: none; text-align: center; }
-        .sub-text { font-size: 1.5rem; color: #ffcc00; display: block; margin-top: 10px; }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kancha â€” Indian Marbles</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { overflow: hidden; background: #d4a373; font-family: 'Segoe UI', sans-serif; }
+  #c { display: block; width: 100vw; height: 100vh; }
+
+  #ui-top {
+    position: fixed; top: 14px; left: 14px;
+    background: rgba(0,0,0,0.52); color: #fff;
+    padding: 12px 16px; border-radius: 10px;
+    font-size: 13px; line-height: 1.75;
+    pointer-events: none; min-width: 200px;
+    backdrop-filter: blur(4px);
+  }
+  #ui-top strong { font-size: 15px; letter-spacing: 0.3px; }
+  #ui-top .hint { color: #ccc; font-size: 11.5px; margin-top: 6px; border-top: 1px solid rgba(255,255,255,0.15); padding-top: 6px; }
+
+  #ui-bottom {
+    position: fixed; bottom: 18px; left: 50%;
+    transform: translateX(-50%);
+    display: flex; gap: 10px;
+  }
+  #ui-bottom button {
+    background: rgba(0,0,0,0.55); color: #fff;
+    border: 1px solid rgba(255,255,255,0.25);
+    padding: 9px 18px; border-radius: 22px;
+    font-size: 13px; cursor: pointer;
+    backdrop-filter: blur(4px);
+    transition: background 0.15s;
+  }
+  #ui-bottom button:hover { background: rgba(0,0,0,0.75); }
+
+  #flash {
+    position: fixed; top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 48px; font-weight: 800;
+    color: #fff; text-shadow: 0 3px 18px rgba(0,0,0,0.7);
+    pointer-events: none; opacity: 0;
+    transition: opacity 0.35s;
+    text-align: center; white-space: nowrap;
+  }
+  #aim-line-hint {
+    position: fixed; bottom: 70px; left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0,0,0,0.45); color: #ffe;
+    padding: 5px 14px; border-radius: 20px;
+    font-size: 12px; pointer-events: none;
+    opacity: 0; transition: opacity 0.3s;
+  }
+</style>
 </head>
 <body>
-    <div id="ui">
-        <b>Level:</b> <span id="level-display">1</span> / 3<br>
-        <b>Targets Remaining:</b> <span id="remaining">0</span><br><br>
-        <i>Controls:</i><br>
-        - Drag background to rotate/pan.<br>
-        - Pinch to Zoom.<br>
-        - Drag FROM Striker to shoot.
-    </div>
+<canvas id="c"></canvas>
 
-    <div class="btn-container">
-        <button id="btn-mode" class="game-btn">🎥 Mode: POV (Chase)</button>
-        <button id="btn-find" class="game-btn">🎯 Find Kancha</button>
-    </div>
+<div id="ui-top">
+  <strong>ðŸŽ± Kancha</strong><br>
+  Level: <span id="lvl">1</span> &nbsp;|&nbsp; Targets: <span id="tgt">5</span>
+  <div class="hint">
+    ðŸ–± Drag background â†’ rotate camera<br>
+    ðŸŽ¯ Drag from striker (big marble) â†’ shoot
+  </div>
+</div>
 
-    <div id="center-text">
-        <span id="main-msg">Level Cleared!</span>
-        <span class="sub-text" id="sub-msg">Loading next level...</span>
-    </div>
-    
-    <script type="importmap">
-        {
-            "imports": {
-                "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
-                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
-                "cannon-es": "https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/+esm"
-            }
-        }
-    </script>
+<div id="ui-bottom">
+  <button id="btn-cam">ðŸŽ¥ Mode: POV</button>
+  <button id="btn-find">ðŸŽ¯ Find Kancha</button>
+</div>
 
-    <script type="module">
-        import * as THREE from 'three';
-        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-        import * as CANNON from 'cannon-es';
+<div id="flash"></div>
+<div id="aim-line-hint">ðŸŽ³ Release to shoot!</div>
 
-        // --- 1. SETUP THREE.JS ---
-        const scene = new THREE.Scene();
-        const skyColor = 0xd4a373;
-        scene.background = new THREE.Color(skyColor);
-        scene.fog = new THREE.Fog(skyColor, 20, 90);
+<script type="module">
+import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js';
+import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/controls/OrbitControls.js';
+import * as CANNON from 'https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cannon-es.js';
 
-        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 500);
+// â”€â”€â”€ Renderer â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+const canvas = document.getElementById('c');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.4;
 
-        const renderer = new THREE.WebGLRenderer({ antialias: true });
-        renderer.setSize(window.innerWidth, window.innerHeight);
-        renderer.shadowMap.enabled = true;
-        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-        renderer.toneMapping = THREE.ACESFilmicToneMapping;
-        renderer.toneMappingExposure = 1.4; 
-        document.body.appendChild(renderer.domElement);
+// â”€â”€â”€ Scene / Camera â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xd4a373);
+scene.fog = new THREE.Fog(0xd4a373, 20, 90);
 
-        const controls = new OrbitControls(camera, renderer.domElement);
-        controls.enableDamping = true;
-        controls.maxPolarAngle = Math.PI / 2 - 0.05; 
-        controls.minDistance = 2; // Allow zooming in close
-        controls.maxDistance = 60; // Allow zooming out further
+const camera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 0.1, 200);
+camera.position.set(0, 10, 16);
 
-        const ambientLight = new THREE.AmbientLight(0xffffff, 1.8);
-        scene.add(ambientLight);
+// â”€â”€â”€ Controls â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+const controls = new OrbitControls(camera, canvas);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.minDistance = 4;
+controls.maxDistance = 40;
+controls.maxPolarAngle = Math.PI / 2 - 0.05;
+controls.target.set(0, 0, 0);
 
-        const dirLight = new THREE.DirectionalLight(0xffffff, 2.5);
-        dirLight.position.set(10, 20, 10);
-        dirLight.castShadow = true;
-        dirLight.shadow.mapSize.width = 2048;
-        dirLight.shadow.mapSize.height = 2048;
-        dirLight.shadow.camera.near = 0.5;
-        dirLight.shadow.camera.far = 50;
-        dirLight.shadow.camera.left = -30;
-        dirLight.shadow.camera.right = 30;
-        dirLight.shadow.camera.top = 30;
-        dirLight.shadow.camera.bottom = -30;
-        scene.add(dirLight);
+// â”€â”€â”€ Lighting â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+const ambient = new THREE.AmbientLight(0xfff5e0, 1.8);
+scene.add(ambient);
 
-        // --- 2. SETUP CANNON.ES ---
-        const world = new CANNON.World({ gravity: new CANNON.Vec3(0, -9.82, 0) });
-        const physicsMaterials = { ground: new CANNON.Material('ground'), glass: new CANNON.Material('glass') };
-        world.addContactMaterial(new CANNON.ContactMaterial(physicsMaterials.glass, physicsMaterials.glass, { friction: 0.1, restitution: 0.8 }));
-        world.addContactMaterial(new CANNON.ContactMaterial(physicsMaterials.glass, physicsMaterials.ground, { friction: 0.6, restitution: 0.2 }));
+const sun = new THREE.DirectionalLight(0xfff0c8, 2.5);
+sun.position.set(18, 30, 12);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.camera.near = 0.5;
+sun.shadow.camera.far = 100;
+sun.shadow.camera.left = -30;
+sun.shadow.camera.right = 30;
+sun.shadow.camera.top = 30;
+sun.shadow.camera.bottom = -30;
+sun.shadow.bias = -0.001;
+scene.add(sun);
 
-        // --- 3. CREATE GROUND & RING ---
-        const groundGeo = new THREE.PlaneGeometry(150, 150); 
-        const groundMat = new THREE.MeshStandardMaterial({ color: 0xcaba9c, roughness: 1 });
-        const groundMesh = new THREE.Mesh(groundGeo, groundMat);
-        groundMesh.rotation.x = -Math.PI / 2;
-        groundMesh.receiveShadow = true;
-        scene.add(groundMesh);
+// â”€â”€â”€ Ground â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+const groundGeo = new THREE.PlaneGeometry(150, 150);
+const groundMat = new THREE.MeshStandardMaterial({ color: 0xcaba9c, roughness: 0.92, metalness: 0.0 });
+const groundMesh = new THREE.Mesh(groundGeo, groundMat);
+groundMesh.rotation.x = -Math.PI / 2;
+groundMesh.receiveShadow = true;
+scene.add(groundMesh);
 
-        const groundBody = new CANNON.Body({ type: CANNON.Body.STATIC, shape: new CANNON.Plane(), material: physicsMaterials.ground });
-        groundBody.quaternion.setFromEuler(-Math.PI / 2, 0, 0);
-        world.addBody(groundBody);
+// Dirt texture overlay via procedural circles (dust spots)
+const dustGeo = new THREE.CircleGeometry(0.18, 8);
+const dustMat = new THREE.MeshStandardMaterial({ color: 0xb8a080, roughness: 1, transparent: true, opacity: 0.35 });
+for (let i = 0; i < 120; i++) {
+  const d = new THREE.Mesh(dustGeo, dustMat);
+  d.rotation.x = -Math.PI / 2;
+  d.position.set((Math.random() - 0.5) * 100, 0.001, (Math.random() - 0.5) * 100);
+  scene.add(d);
+}
 
-        let ringMesh = new THREE.Mesh(new THREE.RingGeometry(1, 1.1, 64), new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide }));
-        ringMesh.rotation.x = -Math.PI / 2;
-        ringMesh.position.y = 0.01;
-        scene.add(ringMesh);
+// â”€â”€â”€ Physics World â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+const world = new CANNON.World({ gravity: new CANNON.Vec3(0, -9.82, 0) });
+world.broadphase = new CANNON.SAPBroadphase(world);
+world.allowSleep = true;
 
-        // --- 4. LEVEL & MARBLE MANAGEMENT ---
-        let currentLevel = 1;
-        let isTransitioning = false;
-        let currentRingRadius = 3;
-        const STRIKER_START_POS = new CANNON.Vec3(0, 0.3, 7);
-        let targetMarbles = [];
-        let knockedOutMarbles = [];
-        let striker;
+const glassMat = new CANNON.Material('glass');
+const groundPhysMat = new CANNON.Material('ground');
 
-        // CAMERA MODES
-        let userPlayMode = 'pov'; // 'pov' or 'top'
-        let cameraState = 'orbit'; // 'orbit', 'chase', 'find', 'topdown'
-        let shootDirection = new THREE.Vector3(0, 0, -1);
+const glassGlass = new CANNON.ContactMaterial(glassMat, glassMat, {
+  friction: 0.1, restitution: 0.8
+});
+const glassGround = new CANNON.ContactMaterial(glassMat, groundPhysMat, {
+  friction: 0.6, restitution: 0.2
+});
+world.addContactMaterial(glassGlass);
+world.addContactMaterial(glassGround);
 
-        const levelConfigs = [
-            { radius: 3, targets: [ {x:0, z:0, c:0x00ff00}, {x:0.5, z:-0.5, c:0xffffff}, {x:-0.5, z:-0.5, c:0xff0000}, {x:0.25, z:0.5, c:0xffff00}, {x:-0.25, z:0.5, c:0xff00ff} ] },
-            { radius: 2, targets: [ {x:0, z:0, c:0x00ff00}, {x:0.4, z:0, c:0xffffff}, {x:-0.4, z:0, c:0xff0000}, {x:0, z:0.4, c:0xffff00}, {x:0, z:-0.4, c:0xff00ff} ] },
-            { radius: 1.5, targets: [ {x:0, z:0, c:0xff0000}, {x:0.4, z:0, c:0xffffff}, {x:-0.4, z:0, c:0xffffff}, {x:0.8, z:0, c:0xffff00}, {x:-0.8, z:0, c:0xffff00} ] }
-        ];
+// Ground body
+const groundBody = new CANNON.Body({ mass: 0, material: groundPhysMat });
+groundBody.addShape(new CANNON.Plane());
+groundBody.quaternion.setFromEuler(-Math.PI / 2, 0, 0);
+world.addBody(groundBody);
 
-        function createMarble(x, z, color, isStriker = false) {
-            const radius = isStriker ? 0.3 : 0.2;
-            const mass = isStriker ? 5 : 2;
-            const mat = new THREE.MeshPhysicalMaterial({ transmission: 1, opacity: 1, roughness: 0.1, ior: 1.5, thickness: 0.5, color: color });
-            const mesh = new THREE.Mesh(new THREE.SphereGeometry(radius, 32, 32), mat);
-            mesh.castShadow = true;
-            scene.add(mesh);
+// â”€â”€â”€ Marble Materials â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+const marbleColors = [0xe63946, 0x2196f3, 0x4caf50, 0xff9800, 0x9c27b0, 0x00bcd4, 0xf06292];
+function makeMarbleMat(color) {
+  return new THREE.MeshPhysicalMaterial({
+    color, transmission: 1, opacity: 1, roughness: 0.08,
+    ior: 1.5, thickness: 0.5, metalness: 0,
+    transparent: true, envMapIntensity: 1.2
+  });
+}
+const strikerMat = new THREE.MeshPhysicalMaterial({
+  color: 0xffffff, transmission: 1, opacity: 1, roughness: 0.05,
+  ior: 1.7, thickness: 0.7, metalness: 0,
+  transparent: true, envMapIntensity: 1.5
+});
 
-            const body = new CANNON.Body({ mass: mass, shape: new CANNON.Sphere(radius), position: new CANNON.Vec3(x, radius, z), material: physicsMaterials.glass, linearDamping: 0.4, angularDamping: 0.4 });
-            world.addBody(body);
-            return { mesh, body, isStriker, isOut: false };
-        }
+// â”€â”€â”€ Game State â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+let currentLevel = 0;
+let physBodies = [];
+let marbleMeshes = [];
+let strikerBody = null;
+let strikerMesh = null;
+let targetBodies = [];
+let targetMeshes = [];
+let knockedOut = [];
+let ringMesh = null;
+let ringRadius = 3;
+let strikerStart = new THREE.Vector3(0, 0.3, 7);
 
-        function loadLevel(levelIndex) {
-            isTransitioning = true;
-            const config = levelConfigs[levelIndex - 1];
-            currentRingRadius = config.radius;
+// â”€â”€â”€ Level Configs â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+const levels = [
+  {
+    ringRadius: 3,
+    targets: [
+      { x: 0.0, z: 0.0 }, { x: 1.2, z: 0.8 }, { x: -1.1, z: 0.7 },
+      { x: 0.5, z: -1.3 }, { x: -0.6, z: -1.0 }
+    ]
+  },
+  {
+    ringRadius: 2,
+    targets: [
+      { x: 0, z: 0 }, { x: 0, z: 1.1 }, { x: 0, z: -1.1 },
+      { x: 1.1, z: 0 }, { x: -1.1, z: 0 }
+    ]
+  },
+  {
+    ringRadius: 1.5,
+    targets: [
+      { x: -2.0, z: 0 }, { x: -1.0, z: 0 }, { x: 0, z: 0 },
+      { x: 1.0, z: 0 }, { x: 2.0, z: 0 }
+    ]
+  }
+];
 
-            targetMarbles.forEach(m => { scene.remove(m.mesh); world.removeBody(m.body); });
-            targetMarbles = []; knockedOutMarbles = [];
+// â”€â”€â”€ Aim Line â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+const aimLineMat = new THREE.LineBasicMaterial({ color: 0xffffff, opacity: 0.85, transparent: true });
+const aimLineGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
+const aimLine = new THREE.Line(aimLineGeo, aimLineMat);
+aimLine.visible = false;
+scene.add(aimLine);
 
-            ringMesh.geometry.dispose();
-            ringMesh.geometry = new THREE.RingGeometry(currentRingRadius - 0.05, currentRingRadius + 0.05, 64);
+// â”€â”€â”€ Camera State Machine â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+let camMode = 'orbit';   // 'orbit' | 'topdown'
+let camState = 'idle';   // 'idle' | 'chase' | 'findkancha'
+let shotDir = new THREE.Vector3();
+let findKanchaReturn = null;
 
-            config.targets.forEach(t => targetMarbles.push(createMarble(t.x, t.z, t.c)));
+function setCamMode(mode) {
+  camMode = mode;
+  document.getElementById('btn-cam').textContent =
+    mode === 'orbit' ? 'ðŸŽ¥ Mode: POV' : 'ðŸŽ¥ Mode: Top Down';
+  if (mode === 'topdown') {
+    controls.enabled = false;
+    camState = 'idle';
+  } else {
+    controls.enabled = true;
+  }
+}
 
-            if (!striker) striker = createMarble(STRIKER_START_POS.x, STRIKER_START_POS.z, 0x0088ff, true);
-            resetStriker();
+// â”€â”€â”€ Pointer / Drag State â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+let isDragging = false;
+let dragStart2D = new THREE.Vector2();
+let dragCurrent3D = new THREE.Vector3();
+const raycaster = new THREE.Raycaster();
+const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 
-            document.getElementById('level-display').innerText = levelIndex;
-            updateRemainingCount();
-            
-            showText(`Level ${levelIndex}`, "Clear targets without stopping in the ring!", 2000);
-            setTimeout(() => { isTransitioning = false; }, 2000);
-        }
+function getGroundPoint(clientX, clientY) {
+  const ndc = new THREE.Vector2(
+    (clientX / innerWidth) * 2 - 1,
+    -(clientY / innerHeight) * 2 + 1
+  );
+  raycaster.setFromCamera(ndc, camera);
+  const pt = new THREE.Vector3();
+  raycaster.ray.intersectPlane(groundPlane, pt);
+  return pt;
+}
 
-        function resetStriker() {
-            striker.body.position.copy(STRIKER_START_POS);
-            striker.body.velocity.set(0,0,0);
-            striker.body.angularVelocity.set(0,0,0);
-            applyCameraMode();
-        }
+function strikerSpeed() {
+  if (!strikerBody) return 999;
+  return strikerBody.velocity.lengthSquared();
+}
 
-        function updateRemainingCount() {
-            const remaining = targetMarbles.filter(m => !m.isOut).length;
-            document.getElementById('remaining').innerText = remaining;
-            return remaining;
-        }
+canvas.addEventListener('pointerdown', e => {
+  if (e.button !== 0) return;
+  const gpt = getGroundPoint(e.clientX, e.clientY);
+  if (!gpt || !strikerMesh) return;
+  const strikerPos = strikerMesh.position;
+  const dist = gpt.distanceTo(strikerPos);
+  if (dist < 2.5 && strikerSpeed() < 0.12) {
+    isDragging = true;
+    dragStart2D.set(e.clientX, e.clientY);
+    dragCurrent3D.copy(gpt);
+    controls.enabled = false;
+    canvas.setPointerCapture(e.pointerId);
+    document.getElementById('aim-line-hint').style.opacity = '1';
+  }
+});
 
-        function showText(mainMsg, subMsg = "", duration = 0) {
-            const container = document.getElementById('center-text');
-            document.getElementById('main-msg').innerText = mainMsg;
-            document.getElementById('sub-msg').innerText = subMsg;
-            container.style.display = 'block';
-            if (duration > 0) setTimeout(() => { container.style.display = 'none'; }, duration);
-        }
+canvas.addEventListener('pointermove', e => {
+  if (!isDragging) return;
+  const gpt = getGroundPoint(e.clientX, e.clientY);
+  if (!gpt) return;
+  dragCurrent3D.copy(gpt);
+  const spos = strikerMesh.position;
+  const pts = [spos.clone(), dragCurrent3D.clone()];
+  pts[0].y = 0.31; pts[1].y = 0.31;
+  aimLineGeo.setFromPoints(pts);
+  aimLine.visible = true;
+});
 
-        // --- 5. UI BUTTON EVENTS ---
-        const btnMode = document.getElementById('btn-mode');
-        btnMode.addEventListener('click', () => {
-            userPlayMode = userPlayMode === 'pov' ? 'top' : 'pov';
-            btnMode.innerText = userPlayMode === 'pov' ? '🎥 Mode: POV (Chase)' : '🎥 Mode: Top Down';
-            applyCameraMode();
-        });
+canvas.addEventListener('pointerup', e => {
+  if (!isDragging) return;
+  isDragging = false;
+  aimLine.visible = false;
+  document.getElementById('aim-line-hint').style.opacity = '0';
 
-        document.getElementById('btn-find').addEventListener('click', () => {
-            if (!isTransitioning) cameraState = 'find';
-        });
+  const spos = strikerMesh.position;
+  const dragVec = new THREE.Vector3().subVectors(spos, dragCurrent3D);
+  const dist = dragVec.length();
+  if (dist < 0.15) {
+    if (camMode === 'orbit') controls.enabled = true;
+    return;
+  }
+  const power = 22;
+  dragVec.y = 0;
+  dragVec.normalize().multiplyScalar(dist * power);
+  strikerBody.wakeUp();
+  strikerBody.applyImpulse(
+    new CANNON.Vec3(dragVec.x, 0.4, dragVec.z),
+    new CANNON.Vec3(0, 0, 0)
+  );
+  shotDir.copy(dragVec).normalize();
 
-        function applyCameraMode() {
-            if (userPlayMode === 'top') {
-                cameraState = 'topdown';
-                controls.enabled = false;
-            } else {
-                cameraState = 'orbit';
-                controls.enabled = true;
-            }
-        }
+  if (camMode === 'orbit') {
+    camState = 'chase';
+    controls.enabled = false;
+  }
+});
 
-        // --- 6. MODERN POINTER MECHANICS (Fixes Zoom/Drag Conflicts) ---
-        let isDragging = false;
-        let startPos = new THREE.Vector3();
-        let currentPos = new THREE.Vector3();
-        
-        const lineGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
-        const lineMesh = new THREE.Line(lineGeo, new THREE.LineBasicMaterial({ color: 0xffffff, linewidth: 3 }));
-        lineMesh.visible = false;
-        scene.add(lineMesh);
+// â”€â”€â”€ Load Level â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+function clearLevel() {
+  physBodies.forEach(b => world.removeBody(b));
+  physBodies = [];
+  marbleMeshes.forEach(m => scene.remove(m));
+  marbleMeshes = [];
+  targetBodies = [];
+  targetMeshes = [];
+  knockedOut = [];
+  strikerBody = null;
+  strikerMesh = null;
+  if (ringMesh) { scene.remove(ringMesh); ringMesh = null; }
+}
 
-        const raycaster = new THREE.Raycaster();
-        const mouse = new THREE.Vector2();
+function addMarble(x, y, z, radius, mat, isStriker) {
+  const geo = new THREE.SphereGeometry(radius, 32, 32);
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.set(x, y, z);
+  mesh.castShadow = true;
+  mesh.receiveShadow = false;
+  scene.add(mesh);
 
-        function getIntersection(event) {
-            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
-            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
-            raycaster.setFromCamera(mouse, camera);
-            const intersects = raycaster.intersectObject(groundMesh);
-            return intersects.length > 0 ? intersects[0].point : null;
-        }
+  const body = new CANNON.Body({
+    mass: isStriker ? 1.4 : 0.8,
+    shape: new CANNON.Sphere(radius),
+    material: glassMat,
+    linearDamping: 0.4,
+    angularDamping: 0.4,
+    sleepSpeedLimit: 0.08,
+    sleepTimeLimit: 0.4
+  });
+  body.position.set(x, y, z);
+  body.allowSleep = true;
+  world.addBody(body);
+  physBodies.push(body);
+  marbleMeshes.push(mesh);
+  return { mesh, body };
+}
 
-        renderer.domElement.addEventListener('pointerdown', (event) => {
-            if (isTransitioning || cameraState === 'find') return;
-            const point = getIntersection(event);
-            if (!point) return;
-            
-            // WIDENED GRAB RADIUS & RELAXED VELOCITY CHECK (Fixes "Can't Throw")
-            const distToStriker = new THREE.Vector2(point.x, point.z).distanceTo(new THREE.Vector2(striker.mesh.position.x, striker.mesh.position.z));
-            
-            if (distToStriker < 2.5 && striker.body.velocity.lengthSquared() < 0.1) {
-                isDragging = true;
-                controls.enabled = false; // Stop orbiting while pulling back
-                startPos.copy(striker.mesh.position);
-                lineMesh.visible = true;
-            }
-        });
+function loadLevel(idx) {
+  clearLevel();
+  const cfg = levels[idx % levels.length];
+  ringRadius = cfg.ringRadius;
 
-        renderer.domElement.addEventListener('pointermove', (event) => {
-            if (!isDragging) return;
-            const point = getIntersection(event);
-            if (!point) return;
-            currentPos.copy(point);
-            currentPos.y = striker.mesh.position.y;
-            lineGeo.setFromPoints([striker.mesh.position, currentPos]);
-        });
+  // Ring
+  const rGeo = new THREE.RingGeometry(ringRadius - 0.05, ringRadius + 0.05, 64);
+  const rMat = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide, opacity: 0.55, transparent: true });
+  ringMesh = new THREE.Mesh(rGeo, rMat);
+  ringMesh.rotation.x = -Math.PI / 2;
+  ringMesh.position.y = 0.012;
+  scene.add(ringMesh);
 
-        window.addEventListener('pointerup', () => {
-            if (!isDragging) return;
-            isDragging = false;
-            lineMesh.visible = false;
-            
-            const pullVector = new THREE.Vector3().subVectors(startPos, currentPos);
-            
-            // If they pulled back far enough, shoot.
-            if (pullVector.lengthSquared() > 0.05) {
-                shootDirection.copy(pullVector).normalize();
-                
-                // Only trigger chase cam if in POV mode
-                if (userPlayMode === 'pov') cameraState = 'chase'; 
-                
-                striker.body.applyImpulse(new CANNON.Vec3(pullVector.x * 20, 0, pullVector.z * 20), striker.body.position);
-            } else {
-                applyCameraMode(); // Cancel shot, return camera to normal
-            }
-        });
+  // Striker
+  const s = addMarble(strikerStart.x, strikerStart.y, strikerStart.z, 0.38, strikerMat, true);
+  strikerMesh = s.mesh;
+  strikerBody = s.body;
 
-        // --- 7. GAME RULES & PENALTY ---
-        function checkGameState() {
-            if (isTransitioning) return;
+  // Targets
+  cfg.targets.forEach((t, i) => {
+    const col = marbleColors[i % marbleColors.length];
+    const m = addMarble(t.x, 0.28, t.z, 0.27, makeMarbleMat(col), false);
+    targetBodies.push(m.body);
+    targetMeshes.push(m.mesh);
+  });
 
-            let allStopped = true;
-            if (striker.body.velocity.lengthSquared() > 0.05) allStopped = false;
-            targetMarbles.forEach(m => { if (m.body.velocity.lengthSquared() > 0.05) allStopped = false; });
+  updateUI();
+  controls.target.set(0, 0, 0);
+  if (camMode === 'orbit') controls.enabled = true;
+  camState = 'idle';
+}
 
-            if (allStopped) {
-                // If physics sleep, reset camera mode to user preference
-                if (cameraState === 'chase') {
-                    applyCameraMode();
-                }
+// â”€â”€â”€ Flash Text â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+let flashTimer = null;
+function flash(text, duration = 2200) {
+  const el = document.getElementById('flash');
+  el.textContent = text;
+  el.style.opacity = '1';
+  if (flashTimer) clearTimeout(flashTimer);
+  flashTimer = setTimeout(() => { el.style.opacity = '0'; }, duration);
+}
 
-                targetMarbles.forEach(m => {
-                    if (!m.isOut && Math.hypot(m.body.position.x, m.body.position.z) > currentRingRadius) {
-                        m.isOut = true;
-                        knockedOutMarbles.push(m);
-                    }
-                });
+// â”€â”€â”€ UI Update â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+function updateUI() {
+  document.getElementById('lvl').textContent = (currentLevel % levels.length) + 1;
+  const remaining = targetBodies.filter((b, i) => !knockedOut.includes(i)).length;
+  document.getElementById('tgt').textContent = remaining;
+}
 
-                const remaining = updateRemainingCount();
+// â”€â”€â”€ Rule Check â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+let checkPending = false;
+let lastCheckTime = 0;
 
-                if (remaining === 0) {
-                    isTransitioning = true;
-                    if (currentLevel < 3) {
-                        showText("Level Cleared!", "Next level in 3 seconds...");
-                        setTimeout(() => { currentLevel++; loadLevel(currentLevel); }, 3000);
-                    } else {
-                        showText("Victory!", "You are the Kancha Master.");
-                    }
-                    return;
-                }
+function allSleeping() {
+  for (const b of physBodies) {
+    if (b.sleepState !== CANNON.Body.SLEEPING && b.velocity.lengthSquared() > 0.02) return false;
+  }
+  return true;
+}
 
-                const strikerDist = Math.hypot(striker.body.position.x, striker.body.position.z);
-                const distFromStart = Math.hypot(striker.body.position.x - STRIKER_START_POS.x, striker.body.position.z - STRIKER_START_POS.z);
-                
-                if (strikerDist < currentRingRadius && distFromStart > 0.5) {
-                    applyPenalty();
-                }
-            }
-        }
+function checkRules() {
+  if (checkPending) return;
+  checkPending = true;
+  const poll = setInterval(() => {
+    if (!allSleeping()) return;
+    clearInterval(poll);
+    checkPending = false;
+    applyRules();
+  }, 120);
+}
 
-        function applyPenalty() {
-            showText("Penalty!", "Striker stopped in the ring.", 1500);
-            resetStriker();
+function applyRules() {
+  // Check each target
+  let newKnockouts = 0;
+  let lastKnockedIdx = -1;
+  targetBodies.forEach((b, i) => {
+    if (knockedOut.includes(i)) return;
+    const pos = b.position;
+    const dist = Math.sqrt(pos.x * pos.x + pos.z * pos.z);
+    if (dist > ringRadius) {
+      knockedOut.push(i);
+      newKnockouts++;
+      lastKnockedIdx = i;
+    }
+  });
 
-            if (knockedOutMarbles.length > 0) {
-                const returnedMarble = knockedOutMarbles.pop();
-                returnedMarble.isOut = false;
-                returnedMarble.body.position.set(0, 0.2, 0);
-                returnedMarble.body.velocity.set(0, 0, 0);
-            }
-            updateRemainingCount();
-        }
+  // Check striker penalty
+  const sp = strikerBody.position;
+  const strikerDist = Math.sqrt(sp.x * sp.x + sp.z * sp.z);
+  const strikerMoved = sp.distanceTo(new CANNON.Vec3(strikerStart.x, strikerStart.y, strikerStart.z)) > 0.5;
 
-        // --- 8. RENDER LOOP & CAMERA CONTROLLER ---
-        loadLevel(1);
+  if (strikerDist < ringRadius && strikerMoved) {
+    flash('âš ï¸ Penalty!');
+    // Reset striker
+    strikerBody.position.set(strikerStart.x, strikerStart.y, strikerStart.z);
+    strikerBody.velocity.set(0, 0, 0);
+    strikerBody.angularVelocity.set(0, 0, 0);
+    strikerMesh.position.copy(strikerStart);
+    // Return last knockout
+    if (knockedOut.length > 0) {
+      const retIdx = knockedOut.pop();
+      targetBodies[retIdx].position.set(0, 0.28, 0);
+      targetBodies[retIdx].velocity.set(0, 0, 0);
+      targetBodies[retIdx].angularVelocity.set(0, 0, 0);
+      targetMeshes[retIdx].position.set(0, 0.28, 0);
+    }
+    updateUI();
+    return;
+  }
 
-        const timeStep = 1 / 60;
-        function animate() {
-            requestAnimationFrame(animate);
-            world.step(timeStep);
+  updateUI();
 
-            // Sync visual meshes with physics bodies
-            striker.mesh.position.copy(striker.body.position);
-            striker.mesh.quaternion.copy(striker.body.quaternion);
-            targetMarbles.forEach(m => {
-                m.mesh.position.copy(m.body.position);
-                m.mesh.quaternion.copy(m.body.quaternion);
-            });
+  const remaining = targetBodies.filter((b, i) => !knockedOut.includes(i)).length;
+  if (remaining === 0) {
+    if ((currentLevel % levels.length) === levels.length - 1) {
+      flash('ðŸ† Victory! You cleared all levels!', 3500);
+    } else {
+      flash('âœ¨ Level Cleared!', 2000);
+    }
+    setTimeout(() => {
+      currentLevel++;
+      loadLevel(currentLevel);
+    }, 2200);
+  } else if (newKnockouts > 0) {
+    flash(`+${newKnockouts} Marble${newKnockouts > 1 ? 's' : ''} Out!`, 1200);
+  }
+}
 
-            if (isDragging) lineGeo.setFromPoints([striker.mesh.position, currentPos]);
+// Detect when bodies wake and then sleep (shot happened)
+let shotInProgress = false;
+world.addEventListener('beginContact', () => {
+  if (strikerBody && strikerBody.velocity.lengthSquared() > 0.1) {
+    shotInProgress = true;
+  }
+});
 
-            // --- CAMERA STATE MACHINE ---
-            if (cameraState === 'topdown') {
-                // Lock camera high above the striker looking down
-                const idealPos = new THREE.Vector3(striker.mesh.position.x, 25, striker.mesh.position.z + 0.1);
-                camera.position.lerp(idealPos, 0.1);
-                camera.lookAt(striker.mesh.position);
-            }
-            else if (cameraState === 'chase') {
-                // Trailing camera behind the striker
-                const idealPos = new THREE.Vector3(
-                    striker.mesh.position.x - shootDirection.x * 6,
-                    striker.mesh.position.y + 4,
-                    striker.mesh.position.z - shootDirection.z * 6
-                );
-                camera.position.lerp(idealPos, 0.08);
-                camera.lookAt(striker.mesh.position);
-            } 
-            else if (cameraState === 'find') {
-                // Quick jump to top view to locate
-                const idealPos = new THREE.Vector3(striker.mesh.position.x, 15, striker.mesh.position.z + 0.1);
-                camera.position.lerp(idealPos, 0.1);
-                controls.target.lerp(striker.mesh.position, 0.1);
-                camera.lookAt(controls.target);
+// â”€â”€â”€ Buttons â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+document.getElementById('btn-cam').addEventListener('click', () => {
+  setCamMode(camMode === 'orbit' ? 'topdown' : 'orbit');
+});
 
-                // Switch back to normal mode once close
-                if (camera.position.distanceTo(idealPos) < 1.0) {
-                    applyCameraMode();
-                }
-            } 
-            else if (cameraState === 'orbit') {
-                // Default POV dragging behavior
-                if (!isDragging) {
-                    controls.target.lerp(striker.mesh.position, 0.2); 
-                }
-                controls.update();
-            }
+document.getElementById('btn-find').addEventListener('click', () => {
+  if (camState === 'findkancha') return;
+  findKanchaReturn = camMode;
+  camState = 'findkancha';
+  controls.enabled = false;
+});
 
-            checkGameState();
-            renderer.render(scene, camera);
-        }
-        animate();
+// â”€â”€â”€ Animation Loop â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+const clock = new THREE.Clock();
+let physicsSleepTimer = 0;
+let prevAllSleep = true;
 
-        window.addEventListener('resize', () => {
-            camera.aspect = window.innerWidth / window.innerHeight;
-            camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, window.innerHeight);
-        });
-    </script>
+function animate() {
+  requestAnimationFrame(animate);
+  const dt = Math.min(clock.getDelta(), 0.05);
+
+  world.step(1 / 60, dt, 3);
+
+  // Sync meshes
+  marbleMeshes.forEach((mesh, i) => {
+    if (physBodies[i]) {
+      mesh.position.copy(physBodies[i].position);
+      mesh.quaternion.copy(physBodies[i].quaternion);
+    }
+  });
+
+  // Detect shot completion
+  const nowSleeping = allSleeping();
+  if (!prevAllSleep && nowSleeping) {
+    checkRules();
+    if (camMode === 'orbit' && camState === 'chase') {
+      camState = 'idle';
+      controls.enabled = true;
+    }
+  }
+  prevAllSleep = nowSleeping;
+
+  // â”€â”€ Camera State Logic â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  const strikerPos = strikerMesh ? strikerMesh.position : new THREE.Vector3(0, 0, 0);
+
+  if (camState === 'chase') {
+    const behindDir = shotDir.clone().negate().normalize();
+    const targetCamPos = strikerPos.clone()
+      .addScaledVector(behindDir, 6)
+      .add(new THREE.Vector3(0, 4, 0));
+    camera.position.lerp(targetCamPos, 0.06);
+    const lookAt = strikerPos.clone();
+    camera.lookAt(lookAt);
+    controls.target.copy(lookAt);
+
+  } else if (camState === 'findkancha') {
+    const above = strikerPos.clone().add(new THREE.Vector3(0, 15, 0));
+    camera.position.lerp(above, 0.07);
+    camera.lookAt(strikerPos);
+    if (camera.position.distanceTo(above) < 0.6) {
+      setTimeout(() => {
+        camState = 'idle';
+        setCamMode(findKanchaReturn || 'orbit');
+      }, 1200);
+    }
+
+  } else if (camMode === 'topdown') {
+    const above = strikerPos.clone().add(new THREE.Vector3(0, 25, 0));
+    camera.position.lerp(above, 0.08);
+    camera.lookAt(strikerPos);
+
+  } else {
+    // orbit mode
+    controls.target.lerp(strikerPos, 0.05);
+    controls.update();
+  }
+
+  renderer.render(scene, camera);
+}
+
+// â”€â”€â”€ Resize â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+window.addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+// â”€â”€â”€ Init â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+loadLevel(0);
+animate();
+</script>
 </body>
 </html>
+
