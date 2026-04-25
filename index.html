@@ -3,14 +3,21 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Kancha - Dynamic Camera Prototype</title>
+    <title>Kancha - Dynamic Camera & Modes</title>
     <style>
         body { margin: 0; overflow: hidden; background-color: #222; touch-action: none; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
         canvas { display: block; }
+        
         #ui { position: absolute; top: 10px; left: 10px; color: white; background: rgba(0,0,0,0.7); padding: 15px; border-radius: 8px; user-select: none; pointer-events: none; border: 1px solid #555; }
         #ui b { color: #00ffcc; }
-        #btn-find { position: absolute; bottom: 30px; right: 30px; padding: 15px 20px; font-size: 1.2rem; font-weight: bold; background: #0088ff; color: white; border: none; border-radius: 8px; cursor: pointer; box-shadow: 0 4px 10px rgba(0,0,0,0.5); pointer-events: auto; }
-        #btn-find:active { background: #0055aa; transform: translateY(2px); }
+        
+        /* New UI Buttons */
+        .btn-container { position: absolute; bottom: 30px; width: 100%; display: flex; justify-content: space-between; padding: 0 30px; box-sizing: border-box; pointer-events: none; }
+        .game-btn { padding: 15px 20px; font-size: 1.1rem; font-weight: bold; background: #0088ff; color: white; border: none; border-radius: 8px; cursor: pointer; box-shadow: 0 4px 10px rgba(0,0,0,0.5); pointer-events: auto; transition: background 0.2s; }
+        .game-btn:active { background: #0055aa; transform: translateY(2px); }
+        #btn-mode { background: #ff5500; }
+        #btn-mode:active { background: #aa3300; }
+        
         #center-text { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; font-size: 3rem; font-weight: bold; text-shadow: 2px 2px 10px black; user-select: none; pointer-events: none; display: none; text-align: center; }
         .sub-text { font-size: 1.5rem; color: #ffcc00; display: block; margin-top: 10px; }
     </style>
@@ -20,11 +27,15 @@
         <b>Level:</b> <span id="level-display">1</span> / 3<br>
         <b>Targets Remaining:</b> <span id="remaining">0</span><br><br>
         <i>Controls:</i><br>
-        - Drag background to rotate camera.<br>
+        - Drag background to rotate/pan.<br>
+        - Pinch to Zoom.<br>
         - Drag FROM Striker to shoot.
     </div>
 
-    <button id="btn-find">🎯 Find Kancha</button>
+    <div class="btn-container">
+        <button id="btn-mode" class="game-btn">🎥 Mode: POV (Chase)</button>
+        <button id="btn-find" class="game-btn">🎯 Find Kancha</button>
+    </div>
 
     <div id="center-text">
         <span id="main-msg">Level Cleared!</span>
@@ -65,7 +76,8 @@
         const controls = new OrbitControls(camera, renderer.domElement);
         controls.enableDamping = true;
         controls.maxPolarAngle = Math.PI / 2 - 0.05; 
-        controls.maxDistance = 40;
+        controls.minDistance = 2; // Allow zooming in close
+        controls.maxDistance = 60; // Allow zooming out further
 
         const ambientLight = new THREE.AmbientLight(0xffffff, 1.8);
         scene.add(ambientLight);
@@ -77,10 +89,10 @@
         dirLight.shadow.mapSize.height = 2048;
         dirLight.shadow.camera.near = 0.5;
         dirLight.shadow.camera.far = 50;
-        dirLight.shadow.camera.left = -25;
-        dirLight.shadow.camera.right = 25;
-        dirLight.shadow.camera.top = 25;
-        dirLight.shadow.camera.bottom = -25;
+        dirLight.shadow.camera.left = -30;
+        dirLight.shadow.camera.right = 30;
+        dirLight.shadow.camera.top = 30;
+        dirLight.shadow.camera.bottom = -30;
         scene.add(dirLight);
 
         // --- 2. SETUP CANNON.ES ---
@@ -90,7 +102,7 @@
         world.addContactMaterial(new CANNON.ContactMaterial(physicsMaterials.glass, physicsMaterials.ground, { friction: 0.6, restitution: 0.2 }));
 
         // --- 3. CREATE GROUND & RING ---
-        const groundGeo = new THREE.PlaneGeometry(150, 150); // Made ground bigger
+        const groundGeo = new THREE.PlaneGeometry(150, 150); 
         const groundMat = new THREE.MeshStandardMaterial({ color: 0xcaba9c, roughness: 1 });
         const groundMesh = new THREE.Mesh(groundGeo, groundMat);
         groundMesh.rotation.x = -Math.PI / 2;
@@ -115,8 +127,9 @@
         let knockedOutMarbles = [];
         let striker;
 
-        // CAMERA STATE VARIABLES
-        let cameraMode = 'orbit'; // 'orbit', 'chase', 'find'
+        // CAMERA MODES
+        let userPlayMode = 'pov'; // 'pov' or 'top'
+        let cameraState = 'orbit'; // 'orbit', 'chase', 'find', 'topdown'
         let shootDirection = new THREE.Vector3(0, 0, -1);
 
         const levelConfigs = [
@@ -151,17 +164,8 @@
 
             config.targets.forEach(t => targetMarbles.push(createMarble(t.x, t.z, t.c)));
 
-            if (!striker) {
-                striker = createMarble(STRIKER_START_POS.x, STRIKER_START_POS.z, 0x0088ff, true);
-            } else {
-                resetStriker();
-            }
-
-            // Reset camera position for new level
-            cameraMode = 'orbit';
-            controls.enabled = true;
-            camera.position.set(STRIKER_START_POS.x, 8, STRIKER_START_POS.z + 5);
-            controls.target.copy(striker.mesh.position);
+            if (!striker) striker = createMarble(STRIKER_START_POS.x, STRIKER_START_POS.z, 0x0088ff, true);
+            resetStriker();
 
             document.getElementById('level-display').innerText = levelIndex;
             updateRemainingCount();
@@ -174,8 +178,7 @@
             striker.body.position.copy(STRIKER_START_POS);
             striker.body.velocity.set(0,0,0);
             striker.body.angularVelocity.set(0,0,0);
-            cameraMode = 'orbit'; // Snap camera back
-            camera.position.set(STRIKER_START_POS.x, 8, STRIKER_START_POS.z + 5);
+            applyCameraMode();
         }
 
         function updateRemainingCount() {
@@ -192,12 +195,29 @@
             if (duration > 0) setTimeout(() => { container.style.display = 'none'; }, duration);
         }
 
-        // --- 5. FIND KANCHA BUTTON EVENT ---
-        document.getElementById('btn-find').addEventListener('click', () => {
-            if (!isTransitioning) cameraMode = 'find';
+        // --- 5. UI BUTTON EVENTS ---
+        const btnMode = document.getElementById('btn-mode');
+        btnMode.addEventListener('click', () => {
+            userPlayMode = userPlayMode === 'pov' ? 'top' : 'pov';
+            btnMode.innerText = userPlayMode === 'pov' ? '🎥 Mode: POV (Chase)' : '🎥 Mode: Top Down';
+            applyCameraMode();
         });
 
-        // --- 6. SNAP MECHANIC & SHOOTING ---
+        document.getElementById('btn-find').addEventListener('click', () => {
+            if (!isTransitioning) cameraState = 'find';
+        });
+
+        function applyCameraMode() {
+            if (userPlayMode === 'top') {
+                cameraState = 'topdown';
+                controls.enabled = false;
+            } else {
+                cameraState = 'orbit';
+                controls.enabled = true;
+            }
+        }
+
+        // --- 6. MODERN POINTER MECHANICS (Fixes Zoom/Drag Conflicts) ---
         let isDragging = false;
         let startPos = new THREE.Vector3();
         let currentPos = new THREE.Vector3();
@@ -211,58 +231,57 @@
         const mouse = new THREE.Vector2();
 
         function getIntersection(event) {
-            const clientX = event.touches ? event.touches[0].clientX : event.clientX;
-            const clientY = event.touches ? event.touches[0].clientY : event.clientY;
-            mouse.x = (clientX / window.innerWidth) * 2 - 1;
-            mouse.y = -(clientY / window.innerHeight) * 2 + 1;
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
             raycaster.setFromCamera(mouse, camera);
             const intersects = raycaster.intersectObject(groundMesh);
             return intersects.length > 0 ? intersects[0].point : null;
         }
 
-        function onDown(event) {
-            if (isTransitioning || cameraMode === 'find') return;
+        renderer.domElement.addEventListener('pointerdown', (event) => {
+            if (isTransitioning || cameraState === 'find') return;
             const point = getIntersection(event);
             if (!point) return;
             
+            // WIDENED GRAB RADIUS & RELAXED VELOCITY CHECK (Fixes "Can't Throw")
             const distToStriker = new THREE.Vector2(point.x, point.z).distanceTo(new THREE.Vector2(striker.mesh.position.x, striker.mesh.position.z));
             
-            if (distToStriker < 1.5 && striker.body.velocity.lengthSquared() < 0.01) {
+            if (distToStriker < 2.5 && striker.body.velocity.lengthSquared() < 0.1) {
                 isDragging = true;
-                controls.enabled = false;
+                controls.enabled = false; // Stop orbiting while pulling back
                 startPos.copy(striker.mesh.position);
                 lineMesh.visible = true;
             }
-        }
+        });
 
-        function onMove(event) {
+        renderer.domElement.addEventListener('pointermove', (event) => {
             if (!isDragging) return;
             const point = getIntersection(event);
             if (!point) return;
             currentPos.copy(point);
             currentPos.y = striker.mesh.position.y;
             lineGeo.setFromPoints([striker.mesh.position, currentPos]);
-        }
+        });
 
-        function onUp() {
+        window.addEventListener('pointerup', () => {
             if (!isDragging) return;
             isDragging = false;
             lineMesh.visible = false;
             
             const pullVector = new THREE.Vector3().subVectors(startPos, currentPos);
             
-            if (pullVector.lengthSquared() > 0.1) {
-                // Determine direction for the chase camera
+            // If they pulled back far enough, shoot.
+            if (pullVector.lengthSquared() > 0.05) {
                 shootDirection.copy(pullVector).normalize();
-                cameraMode = 'chase'; 
+                
+                // Only trigger chase cam if in POV mode
+                if (userPlayMode === 'pov') cameraState = 'chase'; 
+                
                 striker.body.applyImpulse(new CANNON.Vec3(pullVector.x * 20, 0, pullVector.z * 20), striker.body.position);
             } else {
-                controls.enabled = true; // Cancelled shot
+                applyCameraMode(); // Cancel shot, return camera to normal
             }
-        }
-
-        window.addEventListener('mousedown', onDown); window.addEventListener('mousemove', onMove); window.addEventListener('mouseup', onUp);
-        window.addEventListener('touchstart', onDown, { passive: false }); window.addEventListener('touchmove', onMove, { passive: false }); window.addEventListener('touchend', onUp);
+        });
 
         // --- 7. GAME RULES & PENALTY ---
         function checkGameState() {
@@ -273,10 +292,9 @@
             targetMarbles.forEach(m => { if (m.body.velocity.lengthSquared() > 0.05) allStopped = false; });
 
             if (allStopped) {
-                // If camera was chasing, switch back to orbit once physics stop
-                if (cameraMode === 'chase') {
-                    cameraMode = 'orbit';
-                    controls.enabled = true;
+                // If physics sleep, reset camera mode to user preference
+                if (cameraState === 'chase') {
+                    applyCameraMode();
                 }
 
                 targetMarbles.forEach(m => {
@@ -340,34 +358,36 @@
             if (isDragging) lineGeo.setFromPoints([striker.mesh.position, currentPos]);
 
             // --- CAMERA STATE MACHINE ---
-            if (cameraMode === 'chase') {
-                controls.enabled = false;
-                // Position camera 6 units back and 4 units up from the striker, based on shot direction
+            if (cameraState === 'topdown') {
+                // Lock camera high above the striker looking down
+                const idealPos = new THREE.Vector3(striker.mesh.position.x, 25, striker.mesh.position.z + 0.1);
+                camera.position.lerp(idealPos, 0.1);
+                camera.lookAt(striker.mesh.position);
+            }
+            else if (cameraState === 'chase') {
+                // Trailing camera behind the striker
                 const idealPos = new THREE.Vector3(
                     striker.mesh.position.x - shootDirection.x * 6,
                     striker.mesh.position.y + 4,
                     striker.mesh.position.z - shootDirection.z * 6
                 );
-                camera.position.lerp(idealPos, 0.08); // Smooth trailing
+                camera.position.lerp(idealPos, 0.08);
                 camera.lookAt(striker.mesh.position);
             } 
-            else if (cameraMode === 'find') {
-                controls.enabled = false;
-                // Move straight up to 15 units above striker
+            else if (cameraState === 'find') {
+                // Quick jump to top view to locate
                 const idealPos = new THREE.Vector3(striker.mesh.position.x, 15, striker.mesh.position.z + 0.1);
-                camera.position.lerp(idealPos, 0.05);
+                camera.position.lerp(idealPos, 0.1);
                 controls.target.lerp(striker.mesh.position, 0.1);
                 camera.lookAt(controls.target);
 
-                // Switch back to orbit once it arrives
+                // Switch back to normal mode once close
                 if (camera.position.distanceTo(idealPos) < 1.0) {
-                    cameraMode = 'orbit';
-                    controls.enabled = true;
+                    applyCameraMode();
                 }
             } 
-            else if (cameraMode === 'orbit') {
-                // Dynamically lock OrbitControls target to the striker
-                // This creates the "Top down follow" automatically when dragging
+            else if (cameraState === 'orbit') {
+                // Default POV dragging behavior
                 if (!isDragging) {
                     controls.target.lerp(striker.mesh.position, 0.2); 
                 }
